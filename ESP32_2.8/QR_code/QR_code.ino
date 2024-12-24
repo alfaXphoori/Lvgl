@@ -2,119 +2,120 @@
 #include <TFT_eSPI.h>
 #include <XPT2046_Touchscreen.h>
 #include <string.h>
-//#include "lv_examples.h"
 
-// Touchscreen pins
-#define XPT2046_IRQ 36   // T_IRQ
-#define XPT2046_MOSI 32  // T_DIN
-#define XPT2046_MISO 39  // T_OUT
-#define XPT2046_CLK 25   // T_CLK
-#define XPT2046_CS 33    // T_CS
+#define TFT_HOR_RES   320
+#define TFT_VER_RES   240
+#define DRAW_BUF_SIZE (TFT_HOR_RES * TFT_VER_RES / 10 * (LV_COLOR_DEPTH / 8))
 
-SPIClass touchscreenSPI = SPIClass(VSPI);
+// touchscreen and LVGL global setup
+#define XPT2046_IRQ 36
+#define XPT2046_MOSI 32
+#define XPT2046_MISO 39
+#define XPT2046_CLK 25
+#define XPT2046_CS 33
+
+SPIClass touchscreenSpi = SPIClass(VSPI);
 XPT2046_Touchscreen touchscreen(XPT2046_CS, XPT2046_IRQ);
 
-#define SCREEN_WIDTH 240
-#define SCREEN_HEIGHT 320
+uint16_t touchScreenMinimumX = 200, touchScreenMaximumX = 3700, touchScreenMinimumY = 240, touchScreenMaximumY = 3800;
+uint32_t lastTick = 0;
 
-// Touchscreen coordinates: (x, y) and pressure (z)
-int x, y, z;
-
-#define DRAW_BUF_SIZE (SCREEN_WIDTH * SCREEN_HEIGHT / 10 * (LV_COLOR_DEPTH / 8))
-uint32_t draw_buf[DRAW_BUF_SIZE / 4];
-
-// If logging is enabled, it will inform the user about what is happening in the library
-void log_print(lv_log_level_t level, const char * buf) {
-  LV_UNUSED(level);
-  Serial.println(buf);
-  Serial.flush();
+void my_touchpad_read(lv_indev_t * indev, lv_indev_data_t * data) {
+    if (touchscreen.touched()) {
+        TS_Point p = touchscreen.getPoint();
+        data->point.x = map(p.x, touchScreenMinimumX, touchScreenMaximumX, 0, TFT_HOR_RES);
+        data->point.y = map(p.y, touchScreenMinimumY, touchScreenMaximumY, 0, TFT_VER_RES);
+        data->state = LV_INDEV_STATE_PRESSED;
+    } else {
+        data->state = LV_INDEV_STATE_RELEASED;
+    }
 }
 
-// Get the Touchscreen data
-void touchscreen_read(lv_indev_t * indev, lv_indev_data_t * data) {
-  // Checks if Touchscreen was touched, and prints X, Y and Pressure (Z)
-  if(touchscreen.tirqTouched() && touchscreen.touched()) {
-    // Get Touchscreen points
-    TS_Point p = touchscreen.getPoint();
-    // Calibrate Touchscreen points with map function to the correct width and height
-    x = map(p.x, 200, 3700, 1, SCREEN_WIDTH);
-    y = map(p.y, 240, 3800, 1, SCREEN_HEIGHT);
-    z = p.z;
+// onboard LEDs
+#define CYD_LED_RED 4
+#define CYD_LED_BLUE 17
+#define CYD_LED_GREEN 16
 
-    data->state = LV_INDEV_STATE_PRESSED;
+#define RED_FILTER 1
+#define GREEN_FILTER 0.3
+#define BLUE_FILTER 0.6
 
-    // Set the coordinates
-    data->point.x = x;
-    data->point.y = y;
+// Global variables for labels
+lv_obj_t *status_label;
+lv_obj_t *screen;
+lv_obj_t *qr;
 
-    // Print Touchscreen info about X, Y and Pressure (Z) on the Serial Monitor
-    /* Serial.print("X = ");
-    Serial.print(x);
-    Serial.print(" | Y = ");
-    Serial.print(y);
-    Serial.print(" | Pressure = ");
-    Serial.print(z);
-    Serial.println();*/
-  }
-  else {
-    data->state = LV_INDEV_STATE_RELEASED;
-  }
-}
+// Function to create a QR code
+void create_qr_code() {
 
-void lv_create_main_gui(void) {
-    lv_color_t bg_color = lv_palette_lighten(LV_PALETTE_LIGHT_BLUE, 5);
-    lv_color_t fg_color = lv_palette_darken(LV_PALETTE_BLUE, 4);
+    // Set the QR code colors using RGB
+    lv_color_t bg_color = lv_color_make(255, 255, 255); // White background
+    lv_color_t fg_color = lv_color_make(0, 0, 0);    // Blue foreground
 
-    lv_obj_t * qr = lv_qrcode_create(lv_screen_active());
-    lv_qrcode_set_size(qr, 150);
-    lv_qrcode_set_dark_color(qr, fg_color);
-    lv_qrcode_set_light_color(qr, bg_color);
+    // Create the QR code object
+    lv_obj_t *qr = lv_qrcode_create(lv_scr_act()); // Use the active screen
+    lv_qrcode_set_size(qr, 150); // Set QR code size
+    lv_qrcode_set_dark_color(qr, fg_color); // Set the QR code dark color (foreground)
+    lv_qrcode_set_light_color(qr, bg_color); // Set the QR code light color (background)
 
-    /*Set data*/
-    const char * data = "https://lvgl.io";
-    lv_qrcode_update(qr, data, strlen(data));
-    lv_obj_center(qr);
+    // Set QR code data
+    const char *data = "https://lvgl.io";
+    lv_qrcode_update(qr, data, strlen(data)); // Update the QR code with data
+    lv_obj_center(qr); // Center the QR code on the screen
 
-    /*Add a border with bg_color*/
-    lv_obj_set_style_border_color(qr, bg_color, 0);
+    // Add a border with foreground color
+    lv_obj_set_style_border_color(qr, fg_color, 0);
     lv_obj_set_style_border_width(qr, 5, 0);
+
+    // Create a label for the text below the QR code
+    lv_obj_t *label = lv_label_create(lv_scr_act());
+    lv_label_set_text(label, "Scan for Rent room");
+    lv_obj_set_style_text_color(label, lv_color_make(0, 0, 0), 0); // Black text
+    lv_obj_set_style_text_font(label, &lv_font_montserrat_14, 0); // Optional: Set font
+    lv_obj_align_to(label, qr, LV_ALIGN_OUT_BOTTOM_MID, 0, 10); // Align below the QR code
 }
 
 void setup() {
-  String LVGL_Arduino = String("LVGL Library Version: ") + lv_version_major() + "." + lv_version_minor() + "." + lv_version_patch();
-  Serial.begin(115200);
-  Serial.println(LVGL_Arduino);
-  
-  // Start LVGL
-  lv_init();
-  // Register print function for debugging
-  lv_log_register_print_cb(log_print);
+    Serial.begin(115200);
 
-  // Start the SPI for the touchscreen and init the touchscreen
-  touchscreenSPI.begin(XPT2046_CLK, XPT2046_MISO, XPT2046_MOSI, XPT2046_CS);
-  touchscreen.begin(touchscreenSPI);
-  // Set the Touchscreen rotation in landscape mode
-  // Note: in some displays, the touchscreen might be upside down, so you might need to set the rotation to 0: touchscreen.setRotation(0);
-  touchscreen.setRotation(2);
+    lv_init(); // initialize LVGL
 
-  // Create a display object
-  lv_display_t * disp;
-  // Initialize the TFT display using the TFT_eSPI library
-  disp = lv_tft_espi_create(SCREEN_WIDTH, SCREEN_HEIGHT, draw_buf, sizeof(draw_buf));
-  lv_display_set_rotation(disp, LV_DISPLAY_ROTATION_270);
+    touchscreenSpi.begin(XPT2046_CLK, XPT2046_MISO, XPT2046_MOSI, XPT2046_CS); // start second SPI bus for touchscreen
+    touchscreen.begin(touchscreenSpi); // touchscreen init
+    touchscreen.setRotation(3); // adjust as necessary
     
-  // Initialize an LVGL input device object (Touchscreen)
-  lv_indev_t * indev = lv_indev_create();
-  lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
-  // Set the callback function to read Touchscreen input
-  lv_indev_set_read_cb(indev, touchscreen_read);
+    uint8_t* draw_buf = new uint8_t[DRAW_BUF_SIZE];
+    lv_display_t * disp = lv_tft_espi_create(TFT_HOR_RES, TFT_VER_RES, draw_buf, DRAW_BUF_SIZE);
 
-  // Function to draw the GUI (text, buttons and sliders)
-  lv_create_main_gui();
+    screen = lv_scr_act(); // get the active screen object
+    lv_obj_set_style_bg_color(screen, lv_color_white(), 0); // set the background of the active screen object to black
+
+    lv_indev_t * indev = lv_indev_create();
+    lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
+    lv_indev_set_read_cb(indev, my_touchpad_read); // set the touchpad read function
+
+    // set up the RGB-LED
+    pinMode(CYD_LED_RED, OUTPUT);
+    pinMode(CYD_LED_GREEN, OUTPUT);
+    pinMode(CYD_LED_BLUE, OUTPUT);
+
+    Serial.println("Setup done");
+
+    // Create QR code
+    create_qr_code();
 }
 
 void loop() {
-  lv_task_handler();  // let the GUI do its work
-  lv_tick_inc(5);     // tell LVGL how much time has passed
-  delay(5);           // let this time pass
+    lv_tick_inc(millis() - lastTick); // update the tick timer
+    lastTick = millis();
+    lv_timer_handler(); // update the LVGL UI
+
+    // set the RGB-LED colors using the global sliderColor variable
+    // the value if inverted - 0 makes the light glow maximally and 255 makes the light the darkest possible
+    // a filter is applied to balance the colors
+    analogWrite(CYD_LED_RED, 255-(255 *RED_FILTER));
+    analogWrite(CYD_LED_GREEN, 255-(0 *GREEN_FILTER));
+    analogWrite(CYD_LED_BLUE, 255-(0 *BLUE_FILTER));
+
+    delay(1000);
 }
