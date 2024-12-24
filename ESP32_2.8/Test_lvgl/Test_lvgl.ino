@@ -1,185 +1,210 @@
-/*  Install the "lvgl" library version 9.2 by kisvegabor to interface with the TFT Display - https://lvgl.io/
-    *** IMPORTANT: lv_conf.h available on the internet will probably NOT work with the examples available at Random Nerd Tutorials ***
-    *** YOU MUST USE THE lv_conf.h FILE PROVIDED IN THE LINK BELOW IN ORDER TO USE THE EXAMPLES FROM RANDOM NERD TUTORIALS ***
-    FULL INSTRUCTIONS AVAILABLE ON HOW CONFIGURE THE LIBRARY: https://RandomNerdTutorials.com/cyd-lvgl/ or https://RandomNerdTutorials.com/esp32-tft-lvgl/   */
+// this demo features three LVGL sliders used to control the built-in LEDs on the CYD
+// if you have trouble running this demo, reffer to Examples/LVGL9/LVGL_Arduino/LVGL_Arduino.ino
+// if you can succesfully run the LVGL9 demo, this one should run with no additional setup
+
 #include <lvgl.h>
-
-/*  Install the "TFT_eSPI" library by Bodmer to interface with the TFT Display - https://github.com/Bodmer/TFT_eSPI
-    *** IMPORTANT: User_Setup.h available on the internet will probably NOT work with the examples available at Random Nerd Tutorials ***
-    *** YOU MUST USE THE User_Setup.h FILE PROVIDED IN THE LINK BELOW IN ORDER TO USE THE EXAMPLES FROM RANDOM NERD TUTORIALS ***
-    FULL INSTRUCTIONS AVAILABLE ON HOW CONFIGURE THE LIBRARY: https://RandomNerdTutorials.com/cyd-lvgl/ or https://RandomNerdTutorials.com/esp32-tft-lvgl/   */
 #include <TFT_eSPI.h>
-
-// Install the "XPT2046_Touchscreen" library by Paul Stoffregen to use the Touchscreen - https://github.com/PaulStoffregen/XPT2046_Touchscreen - Note: this library doesn't require further configuration
 #include <XPT2046_Touchscreen.h>
 
-// Touchscreen pins
-#define XPT2046_IRQ 36   // T_IRQ
-#define XPT2046_MOSI 32  // T_DIN
-#define XPT2046_MISO 39  // T_OUT
-#define XPT2046_CLK 25   // T_CLK
-#define XPT2046_CS 33    // T_CS
+#define TFT_HOR_RES   320
+#define TFT_VER_RES   240
+#define DRAW_BUF_SIZE (TFT_HOR_RES * TFT_VER_RES / 10 * (LV_COLOR_DEPTH / 8))
 
-SPIClass touchscreenSPI = SPIClass(VSPI);
+// touchscreen and LVGL global setup
+#define XPT2046_IRQ 36
+#define XPT2046_MOSI 32
+#define XPT2046_MISO 39
+#define XPT2046_CLK 25
+#define XPT2046_CS 33
+
+SPIClass touchscreenSpi = SPIClass(VSPI);
 XPT2046_Touchscreen touchscreen(XPT2046_CS, XPT2046_IRQ);
 
-#define SCREEN_WIDTH 240
-#define SCREEN_HEIGHT 320
+uint16_t touchScreenMinimumX = 200, touchScreenMaximumX = 3700, touchScreenMinimumY = 240, touchScreenMaximumY = 3800;
+uint32_t lastTick = 0;
 
-// Touchscreen coordinates: (x, y) and pressure (z)
-int x, y, z;
-
-#define DRAW_BUF_SIZE (SCREEN_WIDTH * SCREEN_HEIGHT / 10 * (LV_COLOR_DEPTH / 8))
-uint32_t draw_buf[DRAW_BUF_SIZE / 4];
-
-// If logging is enabled, it will inform the user about what is happening in the library
-void log_print(lv_log_level_t level, const char * buf) {
-  LV_UNUSED(level);
-  Serial.println(buf);
-  Serial.flush();
+void my_touchpad_read(lv_indev_t * indev, lv_indev_data_t * data) {
+    if (touchscreen.touched()) {
+        TS_Point p = touchscreen.getPoint();
+        data->point.x = map(p.x, touchScreenMinimumX, touchScreenMaximumX, 0, TFT_HOR_RES);
+        data->point.y = map(p.y, touchScreenMinimumY, touchScreenMaximumY, 0, TFT_VER_RES);
+        data->state = LV_INDEV_STATE_PRESSED;
+    } else {
+        data->state = LV_INDEV_STATE_RELEASED;
+    }
 }
 
-// Get the Touchscreen data
-void touchscreen_read(lv_indev_t * indev, lv_indev_data_t * data) {
-  // Checks if Touchscreen was touched, and prints X, Y and Pressure (Z)
-  if(touchscreen.tirqTouched() && touchscreen.touched()) {
-    // Get Touchscreen points
-    TS_Point p = touchscreen.getPoint();
-    // Calibrate Touchscreen points with map function to the correct width and height
-    x = map(p.x, 200, 3700, 1, SCREEN_WIDTH);
-    y = map(p.y, 240, 3800, 1, SCREEN_HEIGHT);
-    z = p.z;
+// onboard LEDs
+#define CYD_LED_BLUE 17
+#define CYD_LED_RED 4
+#define CYD_LED_GREEN 16
 
-    data->state = LV_INDEV_STATE_PRESSED;
+// values used to reduce the power of the individual R, G and B LEDs
+// the green one is very weak compared to the other ones
+// with this, the colors mix a lot better
+#define RED_FILTER 0.25
+#define GREEN_FILTER 1
+#define BLUE_FILTER 0.4
 
-    // Set the coordinates
-    data->point.x = x;
-    data->point.y = y;
+// global variable to store the color selected by the sliders - it is used both for the color of the color of the sliders and the color of the integrated LED
+lv_color_t sliderColor = lv_color_make(255, 255, 255);
 
-    // Print Touchscreen info about X, Y and Pressure (Z) on the Serial Monitor
-    /* Serial.print("X = ");
-    Serial.print(x);
-    Serial.print(" | Y = ");
-    Serial.print(y);
-    Serial.print(" | Pressure = ");
-    Serial.print(z);
-    Serial.println();*/
-  }
-  else {
-    data->state = LV_INDEV_STATE_RELEASED;
-  }
+// declaration of the callback function passed to the LVGL sliders - it will get called when they are interacted with
+static void slider_event_cb(lv_event_t *e);
+
+// global arrayw used to store the refference to the LVGL elemets, used to change their value later
+lv_obj_t * sliders[3];
+lv_obj_t * labels[3];
+
+// function used to place the LVGL elements onto the screens
+void setup_ui(lv_obj_t * parent) {
+    // create the first slider and store it's refference for later use
+    sliders[0] = lv_slider_create(parent);
+
+    // set the width of the slider
+    lv_obj_set_width(sliders[0], 220);
+
+    // set the slider's position
+    lv_obj_align(sliders[0], LV_ALIGN_TOP_MID, 0, 40);
+
+    // set the range of values produced by the slider
+    lv_slider_set_range(sliders[0], 0, 255);
+
+    // set the default value
+    lv_slider_set_value(sliders[0], 255, LV_ANIM_OFF);
+
+    // set the color of he knob, the track (background line) and the indicator (selected value line)
+    apply_slider_styles(sliders[0]);
+
+    // set the callback called when the value of this slider changes
+    lv_obj_add_event_cb(sliders[0], slider_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
+
+    // repeat for the second sliders
+    sliders[1] = lv_slider_create(parent);
+    lv_obj_set_width(sliders[1], 220);
+    lv_obj_align(sliders[1], LV_ALIGN_TOP_MID, 0, 90);
+    lv_slider_set_range(sliders[1], 0, 255);
+    lv_slider_set_value(sliders[1], 255, LV_ANIM_OFF);
+    apply_slider_styles(sliders[1]);
+    lv_obj_add_event_cb(sliders[1], slider_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
+
+
+    // repeat for the third slider
+    sliders[2] = lv_slider_create(parent);
+    lv_obj_set_width(sliders[2], 220);
+    lv_obj_align(sliders[2], LV_ALIGN_TOP_MID, 0, 140);
+    lv_slider_set_range(sliders[2], 0, 255);
+    lv_slider_set_value(sliders[2], 255, LV_ANIM_OFF);
+    apply_slider_styles(sliders[2]);
+    lv_obj_add_event_cb(sliders[2], slider_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
+
+    // create a style for the labels
+    static lv_style_t style;
+    lv_style_init(&style);
+    lv_style_set_text_color(&style, lv_color_white());  // Set text color to white
+
+    // rerender the first value label
+    labels[0] = lv_label_create(parent);
+    lv_obj_set_width(labels[0], 42);
+    lv_obj_align(labels[0], LV_ALIGN_BOTTOM_LEFT, 50, -30);
+
+    // set label text
+    lv_label_set_text(labels[0], "R: 255");
+
+    // apply the style
+    lv_obj_add_style(labels[0], &style, 0);
+
+
+    // repeat for other labels
+    labels[1] = lv_label_create(parent);
+    lv_obj_set_width(labels[1], 42);
+    lv_obj_align(labels[1], LV_ALIGN_BOTTOM_MID, 0, -30);
+    lv_label_set_text(labels[1], "G: 255");
+    lv_obj_add_style(labels[1], &style, 0);
+
+    labels[2] = lv_label_create(parent);
+    lv_obj_set_width(labels[2], 42);
+    lv_obj_align(labels[2], LV_ALIGN_BOTTOM_RIGHT, -50, -30);
+    lv_label_set_text(labels[2], "B: 255");
+    lv_obj_add_style(labels[2], &style, 0);
 }
 
-int btn1_count = 0;
-// Callback that is triggered when btn1 is clicked
-static void event_handler_btn1(lv_event_t * e) {
-  lv_event_code_t code = lv_event_get_code(e);
-  if(code == LV_EVENT_CLICKED) {
-    btn1_count++;
-    LV_LOG_USER("Button clicked %d", (int)btn1_count);
-  }
+// define the callback function.
+static void slider_event_cb(lv_event_t * e)
+{
+  // get the values of the sliders using the refferences within the gloabal array
+  int red = lv_slider_get_value(sliders[0]);
+  int green = lv_slider_get_value(sliders[1]);
+  int blue = lv_slider_get_value(sliders[2]);
+
+  // set the global slider color variable's value.
+  sliderColor = lv_color_make(blue, green, red);
+
+  // update the sliders with this value to display the color on-screen as well
+  apply_slider_styles(sliders[0]);
+  apply_slider_styles(sliders[1]);
+  apply_slider_styles(sliders[2]);
+
+  // update the labels with the new values
+  update_label_text(labels[0], 'R', red);
+  update_label_text(labels[1], 'G', green);
+  update_label_text(labels[2], 'B', blue);
 }
 
-// Callback that is triggered when btn2 is clicked/toggled
-static void event_handler_btn2(lv_event_t * e) {
-  lv_event_code_t code = lv_event_get_code(e);
-  lv_obj_t * obj = (lv_obj_t*) lv_event_get_target(e);
-  if(code == LV_EVENT_VALUE_CHANGED) {
-    LV_UNUSED(obj);
-    LV_LOG_USER("Toggled %s", lv_obj_has_state(obj, LV_STATE_CHECKED) ? "on" : "off");
-  }
-}
+// helper function to apply styles
+void apply_slider_styles(lv_obj_t* slider) {
+    lv_obj_set_style_bg_color(slider, sliderColor, LV_PART_MAIN);  // set the track color
+    lv_obj_set_style_bg_color(slider, sliderColor, LV_PART_INDICATOR); // set the indicator color
+    lv_obj_set_style_bg_color(slider, lv_color_lighten(sliderColor, LV_OPA_30), LV_PART_KNOB); // set the knob color
+};
 
-static lv_obj_t * slider_label;
-// Callback that prints the current slider value on the TFT display and Serial Monitor for debugging purposes
-static void slider_event_callback(lv_event_t * e) {
-  lv_obj_t * slider = (lv_obj_t*) lv_event_get_target(e);
-  char buf[8];
-  lv_snprintf(buf, sizeof(buf), "%d%%", (int)lv_slider_get_value(slider));
-  lv_label_set_text(slider_label, buf);
-  lv_obj_align_to(slider_label, slider, LV_ALIGN_OUT_BOTTOM_MID, 0, 10);
-  LV_LOG_USER("Slider changed to %d%%", (int)lv_slider_get_value(slider));
-}
-
-void lv_create_main_gui(void) {
-  // Create a text label aligned center on top ("Hello, world!")
-  lv_obj_t * text_label = lv_label_create(lv_screen_active());
-  lv_label_set_long_mode(text_label, LV_LABEL_LONG_WRAP);    // Breaks the long lines
-  lv_label_set_text(text_label, "Hello, world!");
-  lv_obj_set_width(text_label, 150);    // Set smaller width to make the lines wrap
-  lv_obj_set_style_text_align(text_label, LV_TEXT_ALIGN_CENTER, 0);
-  lv_obj_align(text_label, LV_ALIGN_CENTER, 0, -90);
-
-  lv_obj_t * btn_label;
-  // Create a Button (btn1)
-  lv_obj_t * btn1 = lv_button_create(lv_screen_active());
-  lv_obj_add_event_cb(btn1, event_handler_btn1, LV_EVENT_ALL, NULL);
-  lv_obj_align(btn1, LV_ALIGN_CENTER, 0, -50);
-  lv_obj_remove_flag(btn1, LV_OBJ_FLAG_PRESS_LOCK);
-
-  btn_label = lv_label_create(btn1);
-  lv_label_set_text(btn_label, "Button");
-  lv_obj_center(btn_label);
-
-  // Create a Toggle button (btn2)
-  lv_obj_t * btn2 = lv_button_create(lv_screen_active());
-  lv_obj_add_event_cb(btn2, event_handler_btn2, LV_EVENT_ALL, NULL);
-  lv_obj_align(btn2, LV_ALIGN_CENTER, 0, 10);
-  lv_obj_add_flag(btn2, LV_OBJ_FLAG_CHECKABLE);
-  lv_obj_set_height(btn2, LV_SIZE_CONTENT);
-
-  btn_label = lv_label_create(btn2);
-  lv_label_set_text(btn_label, "Toggle");
-  lv_obj_center(btn_label);
-  
-  // Create a slider aligned in the center bottom of the TFT display
-  lv_obj_t * slider = lv_slider_create(lv_screen_active());
-  lv_obj_align(slider, LV_ALIGN_CENTER, 0, 60);
-  lv_obj_add_event_cb(slider, slider_event_callback, LV_EVENT_VALUE_CHANGED, NULL);
-  lv_slider_set_range(slider, 0, 100);
-  lv_obj_set_style_anim_duration(slider, 2000, 0);
-
-  // Create a label below the slider to display the current slider value
-  slider_label = lv_label_create(lv_screen_active());
-  lv_label_set_text(slider_label, "0%");
-  lv_obj_align_to(slider_label, slider, LV_ALIGN_OUT_BOTTOM_MID, 0, 10);
+// helper function to update label text
+void update_label_text(lv_obj_t* label, char symbol, int number){
+  char buf[128];
+  snprintf(buf, sizeof(buf), "%c: %d",symbol, number); // generate the text value with the provided character and number
+  lv_label_set_text(label, buf); // apply the text to the label
 }
 
 void setup() {
-  String LVGL_Arduino = String("LVGL Library Version: ") + lv_version_major() + "." + lv_version_minor() + "." + lv_version_patch();
-  Serial.begin(115200);
-  Serial.println(LVGL_Arduino);
-  
-  // Start LVGL
-  lv_init();
-  // Register print function for debugging
-  lv_log_register_print_cb(log_print);
+    Serial.begin(115200);
 
-  // Start the SPI for the touchscreen and init the touchscreen
-  touchscreenSPI.begin(XPT2046_CLK, XPT2046_MISO, XPT2046_MOSI, XPT2046_CS);
-  touchscreen.begin(touchscreenSPI);
-  // Set the Touchscreen rotation in landscape mode
-  // Note: in some displays, the touchscreen might be upside down, so you might need to set the rotation to 0: touchscreen.setRotation(0);
-  touchscreen.setRotation(2);
+    lv_init(); // initialize LVGL
 
-  // Create a display object
-  lv_display_t * disp;
-  // Initialize the TFT display using the TFT_eSPI library
-  disp = lv_tft_espi_create(SCREEN_WIDTH, SCREEN_HEIGHT, draw_buf, sizeof(draw_buf));
-  lv_display_set_rotation(disp, LV_DISPLAY_ROTATION_270);
+    touchscreenSpi.begin(XPT2046_CLK, XPT2046_MISO, XPT2046_MOSI, XPT2046_CS); // start second SPI bus for touchscreen
+    touchscreen.begin(touchscreenSpi); // touchscreen init
+    touchscreen.setRotation(3); // adjust as necessary
     
-  // Initialize an LVGL input device object (Touchscreen)
-  lv_indev_t * indev = lv_indev_create();
-  lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
-  // Set the callback function to read Touchscreen input
-  lv_indev_set_read_cb(indev, touchscreen_read);
+    uint8_t* draw_buf = new uint8_t[DRAW_BUF_SIZE];
+    lv_display_t * disp = lv_tft_espi_create(TFT_HOR_RES, TFT_VER_RES, draw_buf, DRAW_BUF_SIZE);
 
-  // Function to draw the GUI (text, buttons and sliders)
-  lv_create_main_gui();
+    lv_obj_t *scr = lv_scr_act(); // get the active screen object
+    lv_obj_set_style_bg_color(scr, lv_color_black(), 0); // set the background of the active screen object to black
+
+    lv_indev_t * indev = lv_indev_create();
+    lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
+    lv_indev_set_read_cb(indev, my_touchpad_read); // set the touchpad read function
+
+    setup_ui(scr); // pass the active screen object to the sliders setup function
+
+    // set up the RGB-LED
+    pinMode(CYD_LED_RED, OUTPUT);
+    pinMode(CYD_LED_GREEN, OUTPUT);
+    pinMode(CYD_LED_BLUE, OUTPUT);
+
+    Serial.println("Setup done");
 }
 
 void loop() {
-  lv_task_handler();  // let the GUI do its work
-  lv_tick_inc(5);     // tell LVGL how much time has passed
-  delay(5);           // let this time pass
+    lv_tick_inc(millis() - lastTick); // update the tick timer
+    lastTick = millis();
+    lv_timer_handler(); // update the LVGL UI
+
+    // set the RGB-LED colors using the global sliderColor variable
+    // the value if inverted - 0 makes the light glow maximally and 255 makes the light the darkest possible
+    // a filter is applied to balance the colors
+    analogWrite(CYD_LED_RED, (255 - (sliderColor.blue * RED_FILTER)));
+    analogWrite(CYD_LED_GREEN, (255 - (sliderColor.green * GREEN_FILTER)));
+    analogWrite(CYD_LED_BLUE, (255 - (sliderColor.red * BLUE_FILTER)));
+
+    delay(5);
 }

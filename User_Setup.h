@@ -1,4 +1,5 @@
-//                      USER DEFINED SETTINGS
+
+//                            USER DEFINED SETTINGS
 //   Set driver type, fonts to be loaded, pins used and SPI control method etc
 //
 //   See the User_Setup_Select.h file if you wish to be able to define multiple
@@ -42,8 +43,8 @@
 //#define RPI_DISPLAY_TYPE // 20MHz maximum SPI
 
 // Only define one driver, the other ones must be commented out
-//#define ILI9341_DRIVER       // Generic driver for common displays
-#define ILI9341_2_DRIVER     // Alternative ILI9341 driver, see https://github.com/Bodmer/TFT_eSPI/issues/1172
+#define ILI9341_DRIVER       // Generic driver for common displays
+//#define ILI9341_2_DRIVER     // Alternative ILI9341 driver, see https://github.com/Bodmer/TFT_eSPI/issues/1172
 //#define ST7735_DRIVER      // Define additional parameters below for this display
 //#define ILI9163_DRIVER     // Define additional parameters below for this display
 //#define S6D02A1_DRIVER
