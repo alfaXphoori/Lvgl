@@ -12,23 +12,23 @@ void setup() {
 void loop() {
     
   // Red color (full red, no green, no blue)
-  analogWrite(LED_R, 255);
-  analogWrite(LED_G, 0);
-  analogWrite(LED_B, 0);
+  analogWrite(LED_R, 255-255);
+  analogWrite(LED_G, 255-0);
+  analogWrite(LED_B, 255-0);
 
   delay(1000);
 
   // Green color (no red, full green, no blue)
-  analogWrite(LED_R, 0);
-  analogWrite(LED_G, 255);
-  analogWrite(LED_B, 0);
+  analogWrite(LED_R, 255-0);
+  analogWrite(LED_G, 255-255);
+  analogWrite(LED_B, 255-0);
 
   delay(1000);
 
   // Blue color (no red, no green, full blue)
-  analogWrite(LED_R, 0);
-  analogWrite(LED_G, 0);
-  analogWrite(LED_B, 255);
+  analogWrite(LED_R, 255-0);
+  analogWrite(LED_G, 255-0);
+  analogWrite(LED_B, 255-255);
     
   delay(1000);
 
