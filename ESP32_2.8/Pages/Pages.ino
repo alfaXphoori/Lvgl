@@ -215,5 +215,5 @@ void loop() {
 
     auto_page_switch_with_countdown();  // Call the auto page switch function
 
-    delay(500);  // Small delay for responsiveness
+    delay(10);  // Small delay for responsiveness
 }
