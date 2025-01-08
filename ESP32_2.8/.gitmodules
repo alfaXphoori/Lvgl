@@ -1,0 +1,3 @@
+[submodule "PlatformIO IDE/boards"]
+	path = PlatformIO IDE/boards
+	url = https://github.com/rzeldent/platformio-espressif32-sunton.git
