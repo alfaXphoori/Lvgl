@@ -51,7 +51,11 @@
         - Create lv_conf.h in directory .pio/libdeps/esp32-2432S028Rv2/lvgl
         - Add code in lv_conf.h
 
-10. Test Lvgl
+10. Move demo and example
+    - Go Directory .pio/libdeps/esp32-2432s028Rv2/lvgl
+        - Move demo and example to src
+
+11. Test Lvgl
     - Replace code form Lvgl_RGB.cpp to src/main.cpp
     - Build * Upload 
 
