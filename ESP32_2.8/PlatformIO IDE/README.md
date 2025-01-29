@@ -11,7 +11,7 @@
 
 3. Add Custom Boards
     - Go Directory 
-        - Example C:\Users\myname\.platformio\platforms\espressif32\boards
+        - Example C:\Users\myname\\.platformio\platforms\espressif32\boards
     - Download json file and add to directory
         - https://github.com/rzeldent/platformio-espressif32-sunton/blob/main/esp32-2432S028Rv2.json
 
