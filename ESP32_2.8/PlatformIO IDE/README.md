@@ -30,7 +30,7 @@ This guide walks you through setting up **LVGL** on an **ESP32** board using **P
 
 ## 🏰️ Step 3: Add Custom Board
 
-1. Navigate to the PlatformIO boards directory:  
+1. Navigate to the PlatformIO boards directory (Windows 11):  
    ```plaintext
    C:\Users\myname\.platformio\platforms\espressif32\boards
    ```  
@@ -98,11 +98,7 @@ This guide walks you through setting up **LVGL** on an **ESP32** board using **P
 
 ---
 
-## 📲 Step 9: Add LVGL & Configure
-
-1. Open the **Library** tab  
-2. Search for **lvgl**  
-3. Add it to the project  
+## 📲 Step 9: Add Configure File
 
 ### 🔧 LVGL Configuration
 
@@ -111,7 +107,7 @@ This guide walks you through setting up **LVGL** on an **ESP32** board using **P
    .pio/libdeps/esp32-2432S028Rv2/lvgl
    ```  
 2. Create a new file **lv_conf.h**  
-3. Add the necessary **LVGL configuration code**  
+3. Add the necessary from **Config files/lv_conf.h**  
 
 ---
 
@@ -121,7 +117,7 @@ This guide walks you through setting up **LVGL** on an **ESP32** board using **P
    ```plaintext
    .pio/libdeps/esp32-2432S028Rv2/lvgl
    ```  
-2. Move the **demo and example** files to the `src` directory  
+2. Move the **demo and example** folder to the `src` directory  
 
 ---
 
